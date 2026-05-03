@@ -5,7 +5,7 @@
 ## 대회 개요
 
 구조물의 `front.png`, `top.png` 두 시점 이미지를 입력으로 받아, 시뮬레이션 시작 10초 이내에 구조물이 불안정(unstable) 상태로 전환될 확률을 예측합니다.
-
+> 🏆 최종 성적: Private Score **0.08636** | 상위 **23%**
 - **평가지표**: LogLoss (낮을수록 좋음)
 - **핵심 난이도**: Train(고정 조명/카메라) → Test(랜덤 조명/카메라) 도메인 갭
 
@@ -17,12 +17,12 @@
 
 ## 성능
 
-| 버전 | 모델 | 전략 | Public LogLoss |
-|------|------|------|---------------|
-| Baseline | ResNet-18 | BCE Loss | 1.037 |
-| v1 | EfficientNet-B2 | TTA | 0.120 |
-| v2 | ConvNeXt-Base | 4-way Fusion + 3-Seed | 0.047 |
-| **최종** | **ConvNeXt-Large** | **+ Pseudo Label** | **-** |
+| 버전 | 모델 | 전략 | Public LogLoss | Private LogLoss |
+|------|------|------|---------------|----------------|
+| Baseline | ResNet-18 | BCE Loss | 1.037 | - |
+| v1 | EfficientNet-B2 | TTA | 0.120 | - |
+| v2 | ConvNeXt-Base | 4-way Fusion + 3-Seed | 0.047 | - |
+| **최종** | **ConvNeXt-Large** | **+ Pseudo Label** | **-** | **0.08636 (상위 23%)** |
 
 ## 모델 아키텍처
 

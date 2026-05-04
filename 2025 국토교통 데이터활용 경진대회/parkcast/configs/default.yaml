@@ -1,0 +1,31 @@
+# ParkCast Vision — default config
+
+paths:
+  raw_root: /content                       # COCO 데이터(_annotations.coco.json) 위치
+  yolo_root: /content/pklot_yolo           # COCO→YOLO 변환 후 저장 위치
+  project_root: /content/drive/MyDrive/ParkCast
+  model_dir: /content/drive/MyDrive/ParkCast/models
+  results_dir: /content/drive/MyDrive/ParkCast/results
+
+train:
+  model: yolov8n.pt                        # pretrained
+  epochs: 30
+  imgsz: 640
+  batch: 32
+  device: 0
+  patience: 10
+  cos_lr: true
+  lr0: 0.01
+  # PKLot은 카메라 고정이라 강한 회전/flip 끔
+  degrees: 2.0
+  translate: 0.05
+  scale: 0.1
+  fliplr: 0.0
+  mosaic: 0.5
+  run_name: yolov8n_pklot_v1
+
+evaluate:
+  conf: 0.4
+  failure_sample_n: 200                    # 실패 케이스 분석 시 샘플링
+  failure_topk: 6                          # Top-K 시각화
+  split: test

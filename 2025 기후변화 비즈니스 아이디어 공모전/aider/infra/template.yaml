@@ -1,0 +1,181 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: Aider — 기후적응 헬스케어 플랫폼 (컨테이너 이미지 기반 서버리스)
+
+Parameters:
+  KMAApiKey:
+    Type: String
+    Description: 기상청 공공데이터포털 API 키
+    Default: ""
+    NoEcho: true
+  AirKoreaApiKey:
+    Type: String
+    Description: 에어코리아 API 키
+    Default: ""
+    NoEcho: true
+  EcrImageUri:
+    Type: String
+    Description: ECR 컨테이너 이미지 URI (배포 전 빌드/푸시 후 입력)
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 3008
+
+Resources:
+  # ─── API Gateway ──────────────────────────────
+  AiderApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: aider-api
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+
+  # ─── Lambda (컨테이너 이미지) ──────────────────
+  AiderBackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: aider-backend
+      PackageType: Image
+      ImageUri: !Ref EcrImageUri
+      Description: Aider FastAPI 백엔드 (torch + LightGBM 포함)
+      Environment:
+        Variables:
+          ENV: production
+          KMA_API_KEY: !Ref KMAApiKey
+          AIRKOREA_API_KEY: !Ref AirKoreaApiKey
+          MODEL_ARTIFACT_DIR: /var/task/artifacts
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecordsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AlertsTable
+      Events:
+        ApiProxy:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AiderApi
+            Path: /{proxy+}
+            Method: ANY
+        ApiRoot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AiderApi
+            Path: /
+            Method: ANY
+
+  # ─── DynamoDB ──────────────────────────────────
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: aider-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
+  RecordsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: aider-records
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  AlertsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: aider-alerts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: region_code
+          AttributeType: S
+        - AttributeName: issued_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: region_code
+          KeyType: HASH
+        - AttributeName: issued_at
+          KeyType: RANGE
+
+  # ─── S3 (프론트엔드) ───────────────────────────
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "aider-frontend-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        IgnorePublicAcls: false
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+
+  # ─── CloudFront ────────────────────────────────
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        PriceClass: PriceClass_100
+
+Outputs:
+  ApiEndpoint:
+    Value: !Sub "https://${AiderApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+    Description: API Gateway 엔드포인트 (프론트 REACT_APP_API_URL에 입력)
+
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+
+  CloudFrontUrl:
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+    Description: 프론트엔드 퍼블릭 URL
+
+  FrontendDistributionId:
+    Value: !Ref FrontendDistribution
+    Description: CloudFront 배포 ID (캐시 무효화용)

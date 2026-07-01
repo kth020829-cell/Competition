@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=local
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - AWS_DEFAULT_REGION=ap-northeast-2
+      - KMA_API_KEY=${KMA_API_KEY:-}
+      - AIRKOREA_API_KEY=${AIRKOREA_API_KEY:-}
+    volumes:
+      - ./backend:/app
+      - model_artifacts:/app/artifacts
+    depends_on:
+      - dynamodb-local
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8001:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    ports:
+      - "8002:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - AWS_DEFAULT_REGION=ap-northeast-2
+    depends_on:
+      - dynamodb-local
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - backend
+
+volumes:
+  model_artifacts:

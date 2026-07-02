@@ -54,6 +54,48 @@ YOLOv8 기반으로 PKLot 데이터셋(12,416장, 약 70만 박스)을 학습하
 
 ---
 
+## Instance Segmentation 결과 (SAM 자동 라벨링 → YOLOv8n-seg)
+
+Week 1(bbox detection) 이후 실제로 Colab에서 돌려서 얻은 첫 번째 고도화 결과. GT bbox를 SAM(Segment Anything)의 box prompt로 넣어 픽셀 단위 마스크를 얻고(`scripts/sam_auto_label.py`), 리소스 제약을 감안해 서브셋(train 2,000 / valid 300 / test 300, `configs/segment.yaml` 참조)으로 YOLOv8n-seg를 학습함.
+
+### 라벨 품질 검증
+
+`parkcast/visualize.py::plot_yolo_seg_label_sample`로 SAM이 뽑은 라벨을 직접 그려본 것 — 각진 bbox가 아니라 차량 윤곽을 따라가는 polygon임을 확인함.
+
+![SAM 자동 라벨링 검증 — 각진 사각형이 아니라 실제 차량 윤곽을 따라감](docs/seg_label_verification.png)
+
+### Test set 성능 (서브셋, box + mask 둘 다 리포트)
+
+| Metric | Score |
+|---|---|
+| mAP50 (box) | 0.9613 |
+| mAP50-95 (box) | 0.7757 |
+| Precision | 0.9381 |
+| Recall | 0.9335 |
+| **Mask mAP50** | **0.9263** |
+| **Mask mAP50-95** | **0.5639** |
+
+### 점유율 추정 정확도 (테스트 193장 샘플)
+
+| Metric | Value |
+|---|---|
+| 평균 박스 카운트 오차 | 1.24 boxes |
+| 평균 점유율 오차 | 0.60 %p |
+
+### Detect(bbox) baseline 대비 — 왜 떨어졌는가
+
+| Metric | Detect (전체 8,691장) | Seg (서브셋 2,000장) |
+|---|---|---|
+| mAP50 | 0.9944 | 0.9613 |
+| mAP50-95 | 0.9886 | 0.7757 (box) |
+| 평균 점유율 오차 | 0.27 %p | 0.60 %p |
+
+수치만 보면 하락했지만 원인이 명확함: **학습 데이터가 전체의 23%(2,000/8,691장)뿐**이고, seg 모델은 box head와 mask head를 같은 backbone으로 동시에 학습하는 multi-task라 같은 epoch(30)로는 detect 전용 모델만큼 수렴하지 못함. 특히 mAP50-95(높은 IoU 기준까지 정밀하게 맞아야 함)가 mAP50보다 더 크게 떨어진 것도 같은 이유 — "칸을 찾았는지"는 거의 detect만큼 잘하지만 "경계를 얼마나 정밀하게 맞췄는지"는 데이터 부족의 영향을 더 받음. Mask mAP50-95(0.5639)가 box mAP50-95(0.7757)보다 낮은 것도 예상된 결과: `mobile_sam`(가장 가벼운 SAM 변형)의 마스크 정밀도 + `approxPolyDP` 단순화 과정에서 경계 정보 일부 손실. 그래도 점유율 오차 0.60%p는 여전히 실용적 수준임.
+
+**다음 개선 방향**: 서브셋 크기를 늘리거나(`configs/segment.yaml`의 `sam_labeling.subset`), `mobile_sam.pt` 대신 `sam_b.pt`/`sam2_b.pt`로 교체해 마스크 정밀도를 높이는 것으로 mAP50-95 격차를 좁힐 수 있을 것으로 예상함(아직 실험 전).
+
+---
+
 ## 기술 스택
 
 | 분류 | 기술 |
@@ -218,52 +260,20 @@ print(f"점유율: {result.occupancy_pct:.1f}%")
 
 ---
 
-## 설계 결정 / 트레이드오프
-
-이 섹션이 면접에서 받을 만한 질문에 대한 답임.
-
-### 왜 YOLOv8n인가? (S/M/L 안 쓴 이유)
-
-PKLot의 박스가 한 이미지당 30~70개로 dense하지만 박스 자체는 단순한 직사각형이고 클래스가 2개뿐임. 표현력보다는 **추론 속도**가 더 중요한 응용임 (실시간 CCTV). YOLOv8n으로도 mAP50 0.99가 나오는데 굳이 무거운 모델을 쓸 이유가 없음. 만약 cross-domain 성능이 부족하면 그때 YOLOv8s로 올려서 비교할 계획임.
-
-### 왜 fliplr=0.0 (좌우반전 끔)인가?
-
-PKLot CCTV는 카메라가 고정되어 있어서 좌우반전을 적용하면 학습 분포와 실제 추론 분포가 어긋남. 같은 이유로 강한 회전(`degrees`)도 끔. **데이터의 도메인 특성을 반영한 증강 설계**임.
-
-### 점유율 추정이 0.27%p로 정확한 이유
-
-mAP는 위치+클래스 모두 맞춰야 하지만, 점유율은 **카운트 차이만** 보면 됨. 그래서 박스가 약간 어긋나도(IoU가 낮아도) 카운트는 맞음. mAP보다 더 관대한 metric이라 0.27%p가 실제 응용 정확도에 더 가까움.
-
-### Roboflow random split의 한계 인지
-
-PKLot Roboflow v2는 5분 간격 사진을 random split해서, 사실상 **train과 test가 거의 같은 이미지**가 들어감. mAP 0.99가 그대로 진짜 일반화 성능이 아님. 이 한계를 직접 검증하기 위해 (1) date split, (2) 이미지 임베딩 클러스터링 기반 cross-lot split 두 가지로 다시 평가하는 로직을 `parkcast/domain.py`에 구현함(실행은 아직).
-
-### 왜 YOLOv8n-seg로 확장하는가? + 라벨은 어디서 얻는가
-
-PKLot 주차칸은 카메라 각도상 회전된 사각형(quadrilateral)으로 찍히는 경우가 많음. axis-aligned bbox는 이런 칸을 감쌀 때 인접 칸과 겹치는 여유 영역을 과대 포함하게 됨.
-
-문제는 라벨 소스: PKLot의 COCO `segmentation` 필드는 있어도 bbox에서 파생된 사각형뿐이라, 그대로 쓰면 "각진 사각형" 마스크만 나옴(진짜 윤곽이 아님). 그래서 두 가지 방법을 다 구현해둠:
-
-1. **`parkcast/data.py::coco_to_yolo_seg`** — COCO segmentation 필드를 그대로 쓰고 없으면 bbox 4꼭짓점 fallback. GPU 불필요, 빠름. 학습 파이프라인을 깨지지 않게 만드는 baseline 용도.
-2. **`parkcast/sam_label.py`(실제로 쓰는 방법)** — 이미 검증된 YOLOv8n GT bbox를 [SAM(Segment Anything)](https://github.com/ultralytics/ultralytics)의 box prompt로 넣어 픽셀 단위 마스크를 뽑고, `cv2.findContours` + `cv2.approxPolyDP`로 정리된 polygon으로 단순화함. Ultralytics에 SAM이 통합돼 있어(`from ultralytics import SAM`) 추가 설치 부담이 거의 없음. 마스크를 못 뽑는 극히 드문 경우엔 bbox 4꼭짓점으로 fallback하고 `SamLabelingStats`에 정직하게 카운트함.
-
-`scripts/sam_auto_label.py`로 뽑은 라벨은 `parkcast/visualize.py::plot_yolo_seg_label_sample`로 직접 그려서 "각진 사각형이 아니라 진짜 윤곽인지" 학습 전에 눈으로 검증함 — 실제 사진(사람/버스)으로 로컬 테스트했을 때 몸/버스 윤곽을 그대로 따라가는 것을 확인함(합성 테스트, PKLot 실데이터 라벨링은 아직 미실행).
-
----
-
 ## 고도화 로드맵
 
-Week 1(아래 표) 이후 4가지 방향으로 확장 중 — **표시는 코드 작성 여부이지 실행/검증 여부가 아님**(GPU 학습은 Colab에서 진행 예정):
+Week 1(아래 표) 이후 4가지 방향으로 확장 중. 1단계는 Colab에서 실제로 실행해 결과까지 확보했고, 나머지 3개는 **코드 작성 완료 상태이지 실행/검증까지 끝난 건 아님**(GPU 학습은 Colab에서 순차 진행 예정):
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1. Instance Segmentation | YOLOv8n-seg 전환. 라벨은 SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`, GT bbox → SAM → `cv2.findContours`+`approxPolyDP` polygon, 실패 시 bbox fallback)이 실제 방법이고, `coco_to_yolo_seg`(COCO segmentation 필드/bbox fallback)는 GPU 없이 도는 baseline. `inference.py`/`evaluate.py`/`visualize.py`도 마스크 지원 | 코드 작성 완료(SAM 파이프라인은 실제 사진으로 로컬 검증), PKLot 실데이터 라벨링·학습 실행 전 |
+| 1. Instance Segmentation | YOLOv8n-seg 전환. 라벨은 SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`, GT bbox → SAM → `cv2.findContours`+`approxPolyDP` polygon, 실패 시 bbox fallback)이 실제 방법이고, `coco_to_yolo_seg`(COCO segmentation 필드/bbox fallback)는 GPU 없이 도는 baseline. `inference.py`/`evaluate.py`/`visualize.py`도 마스크 지원 | **✅ 실행 완료** — 서브셋(2,000장) 학습, mAP50 0.9613 / Mask mAP50 0.9263, 상세는 위 "Instance Segmentation 결과" 섹션 참조 |
 | 2. HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 코드 작성 완료, 실제 push/배포 전 |
 | 3. Cross-lot 평가 | `parkcast/domain.py` + `scripts/cross_lot_eval.py` — ResNet50 임베딩 클러스터링으로 주차장 자동 발견 → Random/Date/Lot split 비교 | 코드 작성 완료(Week2 노트북 설계를 모듈화), 실행 전 |
 | 4. CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) + `gradio_demo.py`의 "VLM 질의" 탭 — 차종 추정, 자유 텍스트 질의 | 코드 작성 완료, 실행 검증은 로컬 통합 테스트만(transformers 미설치 환경) |
 
 - [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (실행 완료, mAP50 0.9944)
-- [ ] **Week 2 이후**: 위 4단계 순서대로 Colab에서 실제 학습·평가하고 결과를 이 README/포트폴리오에 반영
+- [x] **1단계 (Instance Segmentation)**: SAM 자동 라벨링 + YOLOv8n-seg 학습 실행 완료 (mAP50 0.9613 / Mask mAP50 0.9263)
+- [ ] **2~4단계**: HuggingFace Spaces 배포 / Cross-lot 평가 / CLIP VLM 질의 — 위 순서대로 Colab에서 실제 실행하고 결과를 이 README/포트폴리오에 반영 예정
 
 ---
 

@@ -13,7 +13,7 @@ from pathlib import Path
 # 패키지 root를 sys.path에 추가 (scripts/에서 직접 실행 시)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from parkcast.data import coco_to_yolo, split_stats
+from parkcast.data import coco_to_yolo, coco_to_yolo_seg, split_stats
 from parkcast.utils import ensure_dirs, load_config
 
 
@@ -24,14 +24,16 @@ def main() -> None:
 
     cfg = load_config(args.config)
     paths = cfg.paths
+    task = cfg.get("task", "detect")
 
     print(f"[1/3] Split 통계")
     stats = split_stats(paths.raw_root)
     print(stats.to_string(index=False))
 
-    print(f"\n[2/3] COCO → YOLO 변환  ({paths.raw_root} → {paths.yolo_root})")
+    print(f"\n[2/3] COCO → YOLO 변환 (task={task})  ({paths.raw_root} → {paths.yolo_root})")
     ensure_dirs(paths.yolo_root)
-    yolo_names, cat_id_to_yolo = coco_to_yolo(paths.raw_root, paths.yolo_root)
+    convert_fn = coco_to_yolo_seg if task == "segment" else coco_to_yolo
+    yolo_names, cat_id_to_yolo = convert_fn(paths.raw_root, paths.yolo_root)
 
     print(f"\n[3/3] 완료")
     print(f"  YOLO classes: {yolo_names}")

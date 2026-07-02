@@ -21,6 +21,8 @@ class EvalMetrics:
     precision: float
     recall: float
     per_class_mAP50: Dict[str, float]
+    mask_mAP50: Optional[float] = None      # seg 모델일 때만 채워짐
+    mask_mAP50_95: Optional[float] = None
 
 
 def evaluate_on_test(
@@ -53,12 +55,17 @@ def evaluate_on_test(
             if i < len(maps):
                 per_class[name] = float(maps[i])
 
+    # seg 모델(yolov8n-seg.pt로 학습)이면 metrics.seg가 추가로 채워짐
+    seg = getattr(metrics, "seg", None)
+
     return EvalMetrics(
         mAP50=float(metrics.box.map50),
         mAP50_95=float(metrics.box.map),
         precision=float(metrics.box.mp),
         recall=float(metrics.box.mr),
         per_class_mAP50=per_class,
+        mask_mAP50=float(seg.map50) if seg is not None else None,
+        mask_mAP50_95=float(seg.map) if seg is not None else None,
     )
 
 

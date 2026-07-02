@@ -8,3 +8,14 @@ numpy>=1.24.0
 tqdm>=4.66.0
 PyYAML>=6.0
 Pillow>=10.0.0
+gradio>=4.19.0
+
+# Cross-lot 평가 (parkcast/domain.py) — 임베딩 클러스터링
+scikit-learn>=1.3.0
+umap-learn>=0.5.5
+
+# CLIP 기반 VLM 쿼리 탭 (parkcast/vlm.py)
+transformers>=4.36.0
+
+# HuggingFace Spaces 배포 (app/hf_space)
+huggingface_hub>=0.20.0

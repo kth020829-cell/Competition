@@ -21,10 +21,15 @@ class OccupancyResult:
     class_ids: np.ndarray                          # (N,)
     confidences: np.ndarray                        # (N,)
     class_names: List[str]                         # 박스별 클래스 이름
+    masks_xy: Optional[List[np.ndarray]] = None    # seg 모델일 때만: 인스턴스별 polygon 좌표 (N,)
 
     @property
     def occupancy_pct(self) -> float:
         return self.occupancy_rate * 100
+
+    @property
+    def has_masks(self) -> bool:
+        return self.masks_xy is not None
 
 
 class OccupancyPredictor:
@@ -60,6 +65,9 @@ class OccupancyPredictor:
         n_total = n_empty + n_occupied
         rate = (n_occupied / n_total) if n_total > 0 else 0.0
 
+        # seg 모델(yolov8n-seg.pt로 학습)이면 r.masks가 채워짐. detect 모델은 None 유지.
+        masks_xy = list(r.masks.xy) if r.masks is not None else None
+
         return OccupancyResult(
             n_empty=n_empty,
             n_occupied=n_occupied,
@@ -69,4 +77,5 @@ class OccupancyPredictor:
             class_ids=cls_ids,
             confidences=confs,
             class_names=names,
+            masks_xy=masks_xy,
         )

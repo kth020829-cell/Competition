@@ -1,0 +1,60 @@
+# ParkCast Vision — Instance Segmentation config (YOLOv8n-seg)
+#
+# default.yaml(detect)과 구조는 동일하되 task만 segment로 전환.
+# PKLot의 주차칸은 카메라 각도상 회전된 사각형(quadrilateral)으로 찍히는 경우가 많아,
+# axis-aligned bbox는 인접 칸끼리 겹치는 영역을 과대 포함함. YOLOv8n-seg로 넘어가면
+# 칸 경계를 더 타이트하게 잡을 수 있는데, "진짜 윤곽"을 얻는 방법은 두 가지임:
+#   (A) scripts/prepare_data.py --config configs/segment.yaml
+#       COCO segmentation 필드를 그대로 씀(없으면 bbox 4꼭짓점 fallback). GPU 불필요,
+#       빠르지만 PKLot 원본은 이 필드가 있어도 bbox에서 파생된 사각형이라 실제 윤곽이 아님.
+#   (B) scripts/sam_auto_label.py --config configs/segment.yaml  ← 실제로 쓰는 방법
+#       이미 검증된 YOLOv8n bbox(GT)를 SAM(Segment Anything)의 box prompt로 넣어
+#       픽셀 단위 마스크를 뽑고 cv2.findContours+approxPolyDP로 polygon화함(parkcast/sam_label.py).
+#       GPU 필요, sam_labeling 섹션 참조.
+# 둘 다 같은 yolo_root에 같은 포맷으로 저장하므로 train.py/evaluate.py는 방법과 무관하게 동작함.
+
+task: segment
+
+paths:
+  raw_root: /content                            # COCO 데이터(_annotations.coco.json) 위치 — detect와 동일 원본 사용
+  yolo_root: /content/pklot_yolo_seg            # seg 라벨은 detect와 포맷이 다르므로 별도 폴더
+  project_root: /content/drive/MyDrive/ParkCast
+  model_dir: /content/drive/MyDrive/ParkCast/models
+  results_dir: /content/drive/MyDrive/ParkCast/results
+
+# scripts/sam_auto_label.py 전용 설정 (SAM box-prompted 라벨링)
+sam_labeling:
+  sam_model: mobile_sam.pt                      # 가장 가벼움. 정교함이 더 필요하면 sam_b.pt/sam2_b.pt로 교체
+  batch_size: 50                                # 이미지 한 장 안의 박스를 이 크기로 나눠 SAM에 프롬프트(메모리 안정성)
+  epsilon_frac: 0.01                            # cv2.approxPolyDP 단순화 강도 (클수록 polygon 점 개수가 줄어듦)
+  seed: 42
+  # 포트폴리오 목적(정확도 극대화가 아니라 "SAM auto-labeling 파이프라인 구축" 증명)이면
+  # 대표 서브셋으로 충분함 — 전체 12,416장 대신 이 크기만큼만 라벨링(무료 T4 기준 30~40분).
+  # None으로 두면 해당 split 전체 사용. 파이프라인 자체는 전체 데이터로도 그대로 확장 가능.
+  subset:
+    train: 2000
+    valid: 300
+    test: 300
+
+train:
+  model: yolov8n-seg.pt                         # pretrained (COCO instance segmentation)
+  epochs: 30
+  imgsz: 640
+  batch: 32
+  device: 0
+  patience: 10
+  cos_lr: true
+  lr0: 0.01
+  # PKLot은 카메라 고정이라 강한 회전/flip 끔 (detect config와 동일 근거)
+  degrees: 2.0
+  translate: 0.05
+  scale: 0.1
+  fliplr: 0.0
+  mosaic: 0.5
+  run_name: yolov8n_seg_pklot_v1
+
+evaluate:
+  conf: 0.4
+  failure_sample_n: 200
+  failure_topk: 6
+  split: test

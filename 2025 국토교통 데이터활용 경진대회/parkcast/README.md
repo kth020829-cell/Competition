@@ -50,7 +50,7 @@ YOLOv8 기반으로 PKLot 데이터셋(12,416장, 약 70만 박스)을 학습하
 
 자세한 시각화는 `results/failure_cases.png` 참조.
 
-> ⚠️ **Random split의 한계**: PKLot Roboflow v2는 5분 간격 연속 촬영 이미지를 random split했기 때문에, 사실상 거의 동일한 시점의 이미지가 train/test에 섞여 있음. 즉 0.99의 mAP는 *진짜 일반화 성능*이 아님. Week 2에서 이 한계를 검증하고 cross-domain 성능을 따로 측정함 (도메인 갭 분석은 [`docs/week2_cross_domain.md`](docs/week2_cross_domain.md) 참조 — *진행 중*).
+> ⚠️ **Random split의 한계**: PKLot Roboflow v2는 5분 간격 연속 촬영 이미지를 random split했기 때문에, 사실상 거의 동일한 시점의 이미지가 train/test에 섞여 있음. 즉 0.99의 mAP는 *진짜 일반화 성능*이 아님. 이 한계를 검증하기 위한 cross-lot 평가 로직은 [`notebooks/ParkCast_Week2_CrossDomain.ipynb`](notebooks/ParkCast_Week2_CrossDomain.ipynb)에서 설계했고 [`parkcast/domain.py`](parkcast/domain.py) + [`scripts/cross_lot_eval.py`](scripts/cross_lot_eval.py)로 재사용 가능하게 정리함 — 코드는 완성됐지만 **실제 학습·평가는 아직 실행 전**(GPU 필요, Colab에서 실행 예정). 실행되면 이 섹션의 mAP 0.9944는 random split 결과라는 전제하에 date/lot split 결과와 나란히 갱신할 것.
 
 ---
 
@@ -58,11 +58,14 @@ YOLOv8 기반으로 PKLot 데이터셋(12,416장, 약 70만 박스)을 학습하
 
 | 분류 | 기술 |
 |---|---|
-| 모델 | YOLOv8n (Ultralytics) |
+| 모델 | YOLOv8n detect / YOLOv8n-seg (Ultralytics) |
 | 학습 | PyTorch, transfer learning from COCO |
-| 데이터 | PKLot v2 (Roboflow, COCO format → YOLO format 자체 변환) |
+| 데이터 | PKLot v2 (Roboflow, COCO format → YOLO format/YOLO-seg format 자체 변환) |
+| 자동 라벨링 | SAM(mobile_sam/sam_b, Ultralytics 통합) box-prompted segmentation + cv2.findContours/approxPolyDP |
+| 도메인 갭 분석 | ResNet50 임베딩 + scikit-learn K-Means/PCA + UMAP |
+| VLM 질의 | CLIP (`transformers`, zero-shot 이미지-텍스트 매칭) |
 | 시각화 | matplotlib, OpenCV |
-| 배포 | Gradio (웹 데모) |
+| 배포 | Gradio (로컬 웹 데모), HuggingFace Spaces (예정) |
 | 인프라 | Google Colab (T4 GPU) |
 
 ---
@@ -72,30 +75,37 @@ YOLOv8 기반으로 PKLot 데이터셋(12,416장, 약 70만 박스)을 학습하
 ```
 parkcast/
 ├── parkcast/                     ← import 가능한 라이브러리
-│   ├── data.py                   COCO ↔ YOLO 변환, 인덱싱
+│   ├── data.py                   COCO ↔ YOLO 변환(detect) + COCO ↔ YOLO-seg 변환(segment)
 │   ├── eda.py                    분포·샘플 시각화
-│   ├── train.py                  YOLOv8 학습 wrapper
-│   ├── inference.py              OccupancyPredictor (단일 이미지 → 점유율)
-│   ├── evaluate.py               test mAP + GT 비교 + 실패 케이스 추출
-│   ├── visualize.py              박스 그리기, 실패 그리드
+│   ├── train.py                  YOLOv8 학습 wrapper (detect/seg 공용 — checkpoint로 task 결정)
+│   ├── inference.py              OccupancyPredictor (단일 이미지 → 점유율, seg면 마스크도 반환)
+│   ├── evaluate.py               test mAP(+seg mAP) + GT 비교 + 실패 케이스 추출
+│   ├── visualize.py               박스/폴리곤 그리기, 실패 그리드, YOLO-seg 라벨 검증 시각화
+│   ├── domain.py                 cross-lot 도메인 갭 평가 (임베딩 클러스터링, split 구성)
+│   ├── sam_label.py               SAM box-prompted 자동 라벨링 (진짜 픽셀 단위 마스크 → polygon)
+│   ├── vlm.py                    CLIP 기반 open-vocabulary 질의 (ParkingVLM)
 │   └── utils.py                  config 로딩, seed, 클래스 헬퍼
 │
 ├── scripts/                      ← 한 줄로 돌릴 수 있는 진입점
-│   ├── prepare_data.py           COCO → YOLO 변환
+│   ├── prepare_data.py           COCO → YOLO 변환 (config의 task로 detect/segment 분기)
 │   ├── run_eda.py                EDA 그림 저장
 │   ├── train.py                  학습 실행
 │   ├── evaluate.py               평가 + 실패 분석
-│   └── predict.py                단일 이미지 추론
+│   ├── predict.py                단일 이미지 추론
+│   ├── cross_lot_eval.py         Random vs Date vs Lot split 비교 (도메인 갭 정량화)
+│   └── sam_auto_label.py         SAM으로 YOLO-seg 데이터셋 자동 라벨링 (configs/segment.yaml 사용)
 │
 ├── app/
-│   └── gradio_demo.py            웹 데모
+│   ├── gradio_demo.py            웹 데모 (Detection 탭 + VLM 질의 탭)
+│   └── hf_space/                 HuggingFace Spaces 배포용 (app.py, requirements.txt, README.md)
 │
 ├── configs/
-│   └── default.yaml              하이퍼파라미터 한 곳에 모음
+│   ├── default.yaml              detect(YOLOv8n) 하이퍼파라미터
+│   └── segment.yaml              segment(YOLOv8n-seg) 하이퍼파라미터
 │
 ├── notebooks/                    ← 실험 노트북 (재현용)
-│   ├── ParkCast_Week1_YOLOv8.ipynb
-│   └── ParkCast_Week2_CrossDomain.ipynb
+│   ├── ParkCast_Week1_YOLOv8.ipynb          실행 완료 (mAP50 0.9944)
+│   └── ParkCast_Week2_CrossDomain.ipynb     코드 작성만 완료, 미실행 — scripts/cross_lot_eval.py로 대체
 │
 ├── docs/
 │   └── ParkCast_Proposal.pdf     원래 시스템 비전 (수요 예측 + 배차 추천)
@@ -131,7 +141,7 @@ raw_root/
 └── test/{images, _annotations.coco.json}
 ```
 
-### 3. 한 줄씩 실행
+### 3. 한 줄씩 실행 (detect, 기존 파이프라인)
 
 ```bash
 # COCO → YOLO 변환
@@ -151,8 +161,46 @@ python scripts/predict.py --weights runs/yolov8n_pklot_v1/weights/best.pt \
                          --image my_parking_lot.jpg \
                          --save output.png
 
-# 웹 데모 실행
+# 웹 데모 실행 (Detection 탭 + VLM 질의 탭)
 python app/gradio_demo.py --weights runs/yolov8n_pklot_v1/weights/best.pt --share
+```
+
+### 3-1. Instance Segmentation (YOLOv8n-seg)로 대신 돌리기
+
+라벨 소스는 두 가지 — (A) 빠른 baseline, (B) 실제로 쓰는 SAM 자동 라벨링. 설계는
+[`configs/segment.yaml`](configs/segment.yaml) 참조. 둘 다 같은 `yolo_root`에 저장되므로
+아래 학습/평가 명령은 방법과 무관하게 동일함:
+
+```bash
+# (A) 빠른 baseline — COCO segmentation 필드 그대로/bbox fallback, GPU 불필요
+python scripts/prepare_data.py --config configs/segment.yaml
+
+# (B) 실제로 쓰는 방법 — SAM box-prompted 자동 라벨링 (GPU 필요)
+python scripts/sam_auto_label.py --config configs/segment.yaml
+
+# 라벨 검증 (SAM 결과가 각진 사각형이 아니라 진짜 윤곽인지 눈으로 확인)
+python -c "
+from parkcast.visualize import plot_yolo_seg_label_sample
+plot_yolo_seg_label_sample('pklot_yolo_seg/train/images/<파일명>.jpg',
+                            'pklot_yolo_seg/train/labels/<파일명>.txt',
+                            ['spaces', 'space-empty', 'space-occupied'],
+                            save_path='seg_label_check.png', show=False)
+"
+
+# 학습 + 평가 (box mAP와 mask mAP 둘 다 리포트)
+python scripts/train.py    --config configs/segment.yaml
+python scripts/evaluate.py --config configs/segment.yaml --weights runs/yolov8n_seg_pklot_v1/weights/best.pt
+```
+
+### 3-2. Cross-lot(도메인 갭) 평가
+
+기존 random split 결과를 인자로 넘기면 Date split / Lot split을 새로 만들어 학습·평가하고
+셋을 비교함 (`parkcast/domain.py` + `scripts/cross_lot_eval.py`, 아직 실행 전 — GPU 필요):
+
+```bash
+python scripts/cross_lot_eval.py --config configs/default.yaml \
+    --random-map50 0.9944 --random-map50-95 0.9886 \
+    --random-precision 0.9977 --random-recall 0.9975
 ```
 
 ### 4. 라이브러리로 사용
@@ -188,16 +236,34 @@ mAP는 위치+클래스 모두 맞춰야 하지만, 점유율은 **카운트 차
 
 ### Roboflow random split의 한계 인지
 
-PKLot Roboflow v2는 5분 간격 사진을 random split해서, 사실상 **train과 test가 거의 같은 이미지**가 들어감. mAP 0.99가 그대로 진짜 일반화 성능이 아님. 이 한계를 직접 검증하기 위해 Week 2에서 (1) date split, (2) 이미지 임베딩 클러스터링 기반 cross-lot split 두 가지로 다시 평가함.
+PKLot Roboflow v2는 5분 간격 사진을 random split해서, 사실상 **train과 test가 거의 같은 이미지**가 들어감. mAP 0.99가 그대로 진짜 일반화 성능이 아님. 이 한계를 직접 검증하기 위해 (1) date split, (2) 이미지 임베딩 클러스터링 기반 cross-lot split 두 가지로 다시 평가하는 로직을 `parkcast/domain.py`에 구현함(실행은 아직).
+
+### 왜 YOLOv8n-seg로 확장하는가? + 라벨은 어디서 얻는가
+
+PKLot 주차칸은 카메라 각도상 회전된 사각형(quadrilateral)으로 찍히는 경우가 많음. axis-aligned bbox는 이런 칸을 감쌀 때 인접 칸과 겹치는 여유 영역을 과대 포함하게 됨.
+
+문제는 라벨 소스: PKLot의 COCO `segmentation` 필드는 있어도 bbox에서 파생된 사각형뿐이라, 그대로 쓰면 "각진 사각형" 마스크만 나옴(진짜 윤곽이 아님). 그래서 두 가지 방법을 다 구현해둠:
+
+1. **`parkcast/data.py::coco_to_yolo_seg`** — COCO segmentation 필드를 그대로 쓰고 없으면 bbox 4꼭짓점 fallback. GPU 불필요, 빠름. 학습 파이프라인을 깨지지 않게 만드는 baseline 용도.
+2. **`parkcast/sam_label.py`(실제로 쓰는 방법)** — 이미 검증된 YOLOv8n GT bbox를 [SAM(Segment Anything)](https://github.com/ultralytics/ultralytics)의 box prompt로 넣어 픽셀 단위 마스크를 뽑고, `cv2.findContours` + `cv2.approxPolyDP`로 정리된 polygon으로 단순화함. Ultralytics에 SAM이 통합돼 있어(`from ultralytics import SAM`) 추가 설치 부담이 거의 없음. 마스크를 못 뽑는 극히 드문 경우엔 bbox 4꼭짓점으로 fallback하고 `SamLabelingStats`에 정직하게 카운트함.
+
+`scripts/sam_auto_label.py`로 뽑은 라벨은 `parkcast/visualize.py::plot_yolo_seg_label_sample`로 직접 그려서 "각진 사각형이 아니라 진짜 윤곽인지" 학습 전에 눈으로 검증함 — 실제 사진(사람/버스)으로 로컬 테스트했을 때 몸/버스 윤곽을 그대로 따라가는 것을 확인함(합성 테스트, PKLot 실데이터 라벨링은 아직 미실행).
 
 ---
 
-## 로드맵
+## 고도화 로드맵
 
-- [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정
-- [ ] **Week 2**: ResNet50 임베딩 + UMAP/K-Means로 도메인 자동 발견 → cross-lot 일반화 평가
-- [ ] **Week 3**: 1-stage detection vs 2-stage(차량검출 + 칸 매칭) 비교
-- [ ] **Week 4**: Gradio 데모 고도화, 모델 경량화(ONNX/TensorRT) 실험
+Week 1(아래 표) 이후 4가지 방향으로 확장 중 — **표시는 코드 작성 여부이지 실행/검증 여부가 아님**(GPU 학습은 Colab에서 진행 예정):
+
+| 단계 | 내용 | 상태 |
+|---|---|---|
+| 1. Instance Segmentation | YOLOv8n-seg 전환. 라벨은 SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`, GT bbox → SAM → `cv2.findContours`+`approxPolyDP` polygon, 실패 시 bbox fallback)이 실제 방법이고, `coco_to_yolo_seg`(COCO segmentation 필드/bbox fallback)는 GPU 없이 도는 baseline. `inference.py`/`evaluate.py`/`visualize.py`도 마스크 지원 | 코드 작성 완료(SAM 파이프라인은 실제 사진으로 로컬 검증), PKLot 실데이터 라벨링·학습 실행 전 |
+| 2. HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 코드 작성 완료, 실제 push/배포 전 |
+| 3. Cross-lot 평가 | `parkcast/domain.py` + `scripts/cross_lot_eval.py` — ResNet50 임베딩 클러스터링으로 주차장 자동 발견 → Random/Date/Lot split 비교 | 코드 작성 완료(Week2 노트북 설계를 모듈화), 실행 전 |
+| 4. CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) + `gradio_demo.py`의 "VLM 질의" 탭 — 차종 추정, 자유 텍스트 질의 | 코드 작성 완료, 실행 검증은 로컬 통합 테스트만(transformers 미설치 환경) |
+
+- [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (실행 완료, mAP50 0.9944)
+- [ ] **Week 2 이후**: 위 4단계 순서대로 Colab에서 실제 학습·평가하고 결과를 이 README/포트폴리오에 반영
 
 ---
 

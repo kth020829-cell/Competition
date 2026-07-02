@@ -48,6 +48,9 @@ def main() -> None:
     print(f"  Recall:    {metrics.recall:.4f}")
     for k, v in metrics.per_class_mAP50.items():
         print(f"    {k:20s} mAP50={v:.4f}")
+    if metrics.mask_mAP50 is not None:
+        print(f"  Mask mAP50:    {metrics.mask_mAP50:.4f}")
+        print(f"  Mask mAP50-95: {metrics.mask_mAP50_95:.4f}")
 
     # ── 2) GT vs prediction 점유율 비교
     print(f"\n[2/3] Occupancy comparison ({eval_cfg['failure_sample_n']} samples)")
@@ -74,6 +77,11 @@ def main() -> None:
     )
 
     # ── 요약 파일
+    mask_lines = (
+        f"  Mask mAP50:    {metrics.mask_mAP50:.4f}\n"
+        f"  Mask mAP50-95: {metrics.mask_mAP50_95:.4f}\n"
+        if metrics.mask_mAP50 is not None else ""
+    )
     summary = (
         "ParkCast Vision — Evaluation Summary\n"
         "=====================================\n"
@@ -82,6 +90,7 @@ def main() -> None:
         f"  mAP50-95:  {metrics.mAP50_95:.4f}\n"
         f"  Precision: {metrics.precision:.4f}\n"
         f"  Recall:    {metrics.recall:.4f}\n"
+        f"{mask_lines}"
         f"\nOccupancy estimation (n={len(diff_df)}):\n"
         f"  mean box count diff:  {diff_df['count_diff'].mean():.2f}\n"
         f"  mean occupancy diff:  {diff_df['occ_rate_diff'].mean()*100:.2f}%\n"

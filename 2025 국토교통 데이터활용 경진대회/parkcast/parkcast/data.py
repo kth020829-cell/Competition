@@ -18,6 +18,19 @@ from tqdm.auto import tqdm
 SPLITS = ("train", "valid", "test")
 
 
+def _link_or_copy(src: Path, dst: Path, use_symlink: bool) -> None:
+    """가능하면 symlink, 안 되면(Windows/Colab 등) 복사. domain.py/sam_label.py에서도 재사용."""
+    if use_symlink:
+        try:
+            os.symlink(src.resolve(), dst)
+            return
+        except (OSError, FileExistsError):
+            pass
+    import shutil
+
+    shutil.copy(src, dst)
+
+
 def load_coco(coco_path: str | Path) -> Dict:
     with open(coco_path, "r") as f:
         return json.load(f)
@@ -115,16 +128,7 @@ def _convert_split(
         src_path = src_dir / fname
         dst_path = dst_img / fname
         if not dst_path.exists():
-            if use_symlink:
-                try:
-                    os.symlink(src_path.resolve(), dst_path)
-                except (OSError, FileExistsError):
-                    # Colab/Windows 등 symlink 불가 환경
-                    import shutil
-                    shutil.copy(src_path, dst_path)
-            else:
-                import shutil
-                shutil.copy(src_path, dst_path)
+            _link_or_copy(src_path, dst_path, use_symlink)
 
         # 라벨 파일 작성
         lines = []
@@ -135,6 +139,107 @@ def _convert_split(
             cy = (y + h / 2) / H
             nw, nh = w / W, h / H
             lines.append(f"{cls} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}")
+
+        lbl_path = dst_lbl / (Path(fname).stem + ".txt")
+        with open(lbl_path, "w") as f:
+            f.write("\n".join(lines))
+
+
+def coco_to_yolo_seg(
+    raw_root: str | Path,
+    yolo_root: str | Path,
+    splits: Tuple[str, ...] = SPLITS,
+    use_symlink: bool = True,
+) -> Tuple[List[str], Dict[int, int]]:
+    """COCO format을 YOLOv8-seg format(polygon)으로 변환.
+
+    라벨 한 줄: `class x1 y1 x2 y2 ... xn yn` (0~1 정규화, polygon 꼭짓점 순서대로).
+    COCO segmentation이 있으면 그대로 쓰고, 없거나 빈 경우 bbox의 4꼭짓점을
+    polygon으로 대체함(칸 형태 정보는 없지만 학습이 깨지지 않도록 보장).
+
+    출력 구조는 coco_to_yolo와 동일(yolo_root/{split}/{images,labels} + data.yaml).
+    """
+    raw_root = Path(raw_root)
+    yolo_root = Path(yolo_root)
+
+    first_coco = load_coco(raw_root / splits[0] / "_annotations.coco.json")
+    cats_sorted = sorted(first_coco["categories"], key=lambda x: x["id"])
+    cat_id_to_yolo = {cat["id"]: i for i, cat in enumerate(cats_sorted)}
+    yolo_names = [cat["name"] for cat in cats_sorted]
+
+    for split in splits:
+        _convert_split_seg(raw_root / split, yolo_root / split, cat_id_to_yolo, use_symlink)
+
+    yaml_content = (
+        f"path: {yolo_root}\n"
+        f"train: train/images\n"
+        f"val: valid/images\n"
+        f"test: test/images\n"
+        f"\n"
+        f"nc: {len(yolo_names)}\n"
+        f"names: {yolo_names}\n"
+    )
+    with open(yolo_root / "data.yaml", "w") as f:
+        f.write(yaml_content)
+
+    return yolo_names, cat_id_to_yolo
+
+
+def _segmentation_to_points(ann: Dict, W: int, H: int) -> List[Tuple[float, float]]:
+    """COCO annotation 하나에서 정규화된 (x, y) polygon 꼭짓점 리스트를 뽑음.
+
+    ann['segmentation']이 polygon 리스트([[x1,y1,x2,y2,...], ...])면 그 중 가장 큰
+    polygon 하나를 사용(멀티파트 마스크는 드묾). RLE거나 비어있으면 bbox 4꼭짓점으로 대체.
+    """
+    seg = ann.get("segmentation")
+    if isinstance(seg, list) and len(seg) > 0:
+        # 여러 폴리곤이 있으면 점 개수가 가장 많은(=가장 상세한) 것을 사용
+        poly = max(seg, key=len)
+        if len(poly) >= 6:  # 최소 삼각형(3점)
+            pts = [(poly[i] / W, poly[i + 1] / H) for i in range(0, len(poly), 2)]
+            return pts
+
+    # fallback: bbox 4꼭짓점 (RLE segmentation, 빈 polygon 등)
+    x, y, w, h = ann["bbox"]
+    return [
+        (x / W, y / H),
+        ((x + w) / W, y / H),
+        ((x + w) / W, (y + h) / H),
+        (x / W, (y + h) / H),
+    ]
+
+
+def _convert_split_seg(
+    src_dir: Path,
+    dst_root: Path,
+    cat_id_to_yolo: Dict[int, int],
+    use_symlink: bool,
+) -> None:
+    dst_img = dst_root / "images"
+    dst_lbl = dst_root / "labels"
+    dst_img.mkdir(parents=True, exist_ok=True)
+    dst_lbl.mkdir(parents=True, exist_ok=True)
+
+    coco = load_coco(src_dir / "_annotations.coco.json")
+    img_to_anns: Dict[int, list] = defaultdict(list)
+    for a in coco["annotations"]:
+        img_to_anns[a["image_id"]].append(a)
+
+    for img_info in tqdm(coco["images"], desc=f"{src_dir.name} convert (seg)"):
+        fname = img_info["file_name"]
+        W, H = img_info["width"], img_info["height"]
+
+        src_path = src_dir / fname
+        dst_path = dst_img / fname
+        if not dst_path.exists():
+            _link_or_copy(src_path, dst_path, use_symlink)
+
+        lines = []
+        for a in img_to_anns[img_info["id"]]:
+            cls = cat_id_to_yolo[a["category_id"]]
+            pts = _segmentation_to_points(a, W, H)
+            coords = " ".join(f"{px:.6f} {py:.6f}" for px, py in pts)
+            lines.append(f"{cls} {coords}")
 
         lbl_path = dst_lbl / (Path(fname).stem + ".txt")
         with open(lbl_path, "w") as f:

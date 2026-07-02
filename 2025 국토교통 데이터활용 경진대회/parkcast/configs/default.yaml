@@ -1,4 +1,7 @@
-# ParkCast Vision — default config
+# ParkCast Vision — default config (bbox detection)
+# Instance segmentation 변형은 configs/segment.yaml 참조.
+
+task: detect
 
 paths:
   raw_root: /content                       # COCO 데이터(_annotations.coco.json) 위치

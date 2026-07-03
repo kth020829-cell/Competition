@@ -50,13 +50,46 @@ YOLOv8 기반으로 PKLot 데이터셋(12,416장, 약 70만 박스)을 학습하
 
 자세한 시각화는 `results/failure_cases.png` 참조.
 
-> ⚠️ **Random split의 한계**: PKLot Roboflow v2는 5분 간격 연속 촬영 이미지를 random split했기 때문에, 사실상 거의 동일한 시점의 이미지가 train/test에 섞여 있음. 즉 0.99의 mAP는 *진짜 일반화 성능*이 아님. 이 한계를 검증하기 위한 cross-lot 평가 로직은 [`notebooks/ParkCast_Week2_CrossDomain.ipynb`](notebooks/ParkCast_Week2_CrossDomain.ipynb)에서 설계했고 [`parkcast/domain.py`](parkcast/domain.py) + [`scripts/cross_lot_eval.py`](scripts/cross_lot_eval.py)로 재사용 가능하게 정리함 — 코드는 완성됐지만 **실제 학습·평가는 아직 실행 전**(GPU 필요, Colab에서 실행 예정). 실행되면 이 섹션의 mAP 0.9944는 random split 결과라는 전제하에 date/lot split 결과와 나란히 갱신할 것.
+> ⚠️ **Random split의 한계**: PKLot Roboflow v2는 5분 간격 연속 촬영 이미지를 random split했기 때문에, 사실상 거의 동일한 시점의 이미지가 train/test에 섞여 있음. 즉 0.99의 mAP는 *진짜 일반화 성능*이 아닐 수 있다는 의심을 실제로 검증함 — 결과는 아래 "Cross-lot 도메인 갭 평가 결과 (Week 2)" 섹션 참조. 결론만 먼저 말하면: **"cross-domain 검증 성공"이 아니라, 임베딩 기반 클러스터링이 주차장을 제대로 분리하지 못한 네거티브 결과**였고, Date split의 mAP50-95 하락만 유의미한 신호로 확인됨.
 
 ---
 
-## Instance Segmentation 결과 (SAM 자동 라벨링 → YOLOv8n-seg)
+## Cross-lot 도메인 갭 평가 결과 (Week 2)
 
-Week 1(bbox detection) 이후 실제로 Colab에서 돌려서 얻은 첫 번째 고도화 결과. GT bbox를 SAM(Segment Anything)의 box prompt로 넣어 픽셀 단위 마스크를 얻고(`scripts/sam_auto_label.py`), 리소스 제약을 감안해 서브셋(train 2,000 / valid 300 / test 300, `configs/segment.yaml` 참조)으로 YOLOv8n-seg를 학습함.
+원래 계획했던 "Week 2: cross-lot 일반화 평가"를 실제로 Colab에서 실행한 결과(`notebooks/ParkCast_Week2_CrossLot.ipynb`, 로직은 [`parkcast/domain.py`](parkcast/domain.py) + [`scripts/cross_lot_eval.py`](scripts/cross_lot_eval.py)). Week 1의 mAP 0.9944가 random split의 data leakage 때문일 수 있다는 의심을 검증하기 위해, ResNet50 임베딩 + K-Means로 주차장을 라벨 없이 자동 발견하고, 같은 데이터를 Random/Date/Lot 세 가지 split으로 나눠 비교함.
+
+### 도메인 자동 발견 결과
+
+K-Means로 최적 클러스터 수를 탐색한 결과 **best_k=6, silhouette=0.2347**. PKLot의 실제 주차장 수는 3개(PUCPR/UFPR04/UFPR05)인데, 클러스터 수가 그보다 많이 나왔고 silhouette score도 0.23으로 낮음 — 임베딩이 주차장 정체성보다 조명·구도 같은 저수준 특징에 더 지배됐을 가능성을 시사함.
+
+### Split별 결과 (test set)
+
+Lot split 크기: train 9,842 / val 1,093 / test 1,481
+
+| Split | mAP50 | mAP50-95 | Precision | Recall |
+|---|---|---|---|---|
+| Random | 0.9944 | 0.9886 | 0.9977 | 0.9975 |
+| Date | 0.995 | 0.805 | ~0.995 | ~0.995 |
+| Lot | 0.995 | 0.989 | 0.999 | 0.998 |
+
+Date/Lot의 정확한 소수점은 `results/cross_lot/split_comparison.csv` 참조(위 표는 Colab 로그에서 옮긴 값).
+
+<!-- 여기에 results/cross_lot/split_comparison.png 캡처를 넣으면 됨 (Random/Date/Lot 3-way 비교 막대그래프) -->
+![Cross-lot split 비교](results/cross_lot/split_comparison.png)
+
+### 이 결과의 의미 — 네거티브 결과임, "도메인 갭 없음"이 아니라 "분리가 안 됨"
+
+세 split의 mAP50이 전부 0.99대로 거의 동일한 것은 **도메인 갭이 없어서가 아니라, K-Means 클러스터링이 물리적 주차장을 제대로 분리하지 못했기 때문**임. best_k=6이 실제 주차장 수(3)보다 많이 나온 것 자체가 그 증거 — 같은 주차장이 날씨·조명별로 서로 다른 클러스터로 쪼개진 것으로 보임. 그 결과 "Lot split"의 train/val/test에 사실상 같은 주차장이 섞여 들어가, 의도와 달리 또 하나의 random split이 되어버렸고, 이게 mAP50이 떨어지지 않은 진짜 이유임.
+
+다만 **Date split의 mAP50-95가 0.9886 → 0.805로 떨어진 것은 유의미한 신호**임. mAP50-95는 IoU 기준이 엄격한 구간까지 평균낸 지표라, 시간적으로 학습/테스트를 분리하면(다른 날짜) 박스 위치를 정밀하게 맞추는 능력이 나빠진다는 걸 보여줌 — random split이 갖고 있던 leakage(같은 시점 사진이 train/test 양쪽에 들어가는 것)를 부분적으로 제거한 효과로 해석됨.
+
+**결론**: 이 실험은 "cross-domain 검증에 성공했다"는 게 아니라, **임베딩 기반 비지도 도메인 분리 방법의 한계**를 보여준 네거티브 결과임. 그럼에도 (1) mAP 0.99가 leakage 때문일 수 있다는 의심을 실제로 검증하려 했고, (2) 그 과정에서 클러스터링이 실패했다는 것 자체를 진단해냈고, (3) Date split을 통해 최소한 시간적 leakage의 영향은 정량적으로 확인했다는 점이 이 실험의 핵심 기여임. 다음 단계로는 더 lot-특이적인 피처(예: 고정 배경 영역만 crop한 임베딩)를 시도해볼 수 있음.
+
+---
+
+## Instance Segmentation 결과 (Week 3 — SAM 자동 라벨링 → YOLOv8n-seg)
+
+Week 1(bbox detection) 이후 실제로 Colab에서 돌려서 얻은 결과. GT bbox를 SAM(Segment Anything)의 box prompt로 넣어 픽셀 단위 마스크를 얻고(`scripts/sam_auto_label.py`), 리소스 제약을 감안해 서브셋(train 2,000 / valid 300 / test 300, `configs/segment.yaml` 참조)으로 YOLOv8n-seg를 학습함.
 
 ### 라벨 품질 검증
 
@@ -147,7 +180,8 @@ parkcast/
 │
 ├── notebooks/                    ← 실험 노트북 (재현용)
 │   ├── ParkCast_Week1_YOLOv8.ipynb          실행 완료 (mAP50 0.9944)
-│   └── ParkCast_Week2_CrossDomain.ipynb     코드 작성만 완료, 미실행 — scripts/cross_lot_eval.py로 대체
+│   ├── ParkCast_Week2_CrossLot.ipynb        실행 완료 (네거티브 결과 — 위 섹션 참조)
+│   └── ParkCast_Week4_VLM.ipynb             신규 작성, Colab 실행 전
 │
 ├── docs/
 │   └── ParkCast_Proposal.pdf     원래 시스템 비전 (수요 예측 + 배차 추천)
@@ -234,10 +268,11 @@ python scripts/train.py    --config configs/segment.yaml
 python scripts/evaluate.py --config configs/segment.yaml --weights runs/yolov8n_seg_pklot_v1/weights/best.pt
 ```
 
-### 3-2. Cross-lot(도메인 갭) 평가
+### 3-2. Cross-lot(도메인 갭) 평가 — 실행 완료 (네거티브 결과, 위 섹션 참조)
 
 기존 random split 결과를 인자로 넘기면 Date split / Lot split을 새로 만들어 학습·평가하고
-셋을 비교함 (`parkcast/domain.py` + `scripts/cross_lot_eval.py`, 아직 실행 전 — GPU 필요):
+셋을 비교함 (`parkcast/domain.py` + `scripts/cross_lot_eval.py`). 실제 Colab 실행은
+세션 끊김·Drive symlink 문제로 CLI 대신 [`notebooks/ParkCast_Week2_CrossLot.ipynb`](notebooks/ParkCast_Week2_CrossLot.ipynb)로 진행함 — 데이터는 로컬(`/content`)에 두고 결과만 Drive에 저장하는 방식이 안정적이었음. CLI로 동일 로직을 재현하려면:
 
 ```bash
 python scripts/cross_lot_eval.py --config configs/default.yaml \
@@ -262,18 +297,21 @@ print(f"점유율: {result.occupancy_pct:.1f}%")
 
 ## 고도화 로드맵
 
-Week 1(아래 표) 이후 4가지 방향으로 확장 중. 1단계는 Colab에서 실제로 실행해 결과까지 확보했고, 나머지 3개는 **코드 작성 완료 상태이지 실행/검증까지 끝난 건 아님**(GPU 학습은 Colab에서 순차 진행 예정):
+원래 계획은 Week 1~4 순서였으나 실제로는 Week 3(Instance Segmentation)를 먼저 실행하고 Week 2(Cross-lot)를 나중에 실행함. 아래 표는 Week 번호(원래 계획 기준)로 정리:
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1. Instance Segmentation | YOLOv8n-seg 전환. 라벨은 SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`, GT bbox → SAM → `cv2.findContours`+`approxPolyDP` polygon, 실패 시 bbox fallback)이 실제 방법이고, `coco_to_yolo_seg`(COCO segmentation 필드/bbox fallback)는 GPU 없이 도는 baseline. `inference.py`/`evaluate.py`/`visualize.py`도 마스크 지원 | **✅ 실행 완료** — 서브셋(2,000장) 학습, mAP50 0.9613 / Mask mAP50 0.9263, 상세는 위 "Instance Segmentation 결과" 섹션 참조 |
-| 2. HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 코드 작성 완료, 실제 push/배포 전 |
-| 3. Cross-lot 평가 | `parkcast/domain.py` + `scripts/cross_lot_eval.py` — ResNet50 임베딩 클러스터링으로 주차장 자동 발견 → Random/Date/Lot split 비교 | 코드 작성 완료(Week2 노트북 설계를 모듈화), 실행 전 |
-| 4. CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) + `gradio_demo.py`의 "VLM 질의" 탭 — 차종 추정, 자유 텍스트 질의 | 코드 작성 완료, 실행 검증은 로컬 통합 테스트만(transformers 미설치 환경) |
+| Week 1 — Detection | YOLOv8n bbox 검출, 전체 데이터(train 8,691장) | ✅ **실행 완료** — mAP50 0.9944, 점유율 오차 0.27%p |
+| Week 2 — Cross-lot 평가 | ResNet50 임베딩 + K-Means로 주차장 자동 발견 → Random/Date/Lot split 비교 (`parkcast/domain.py`, `scripts/cross_lot_eval.py`) | ✅ **실행 완료** — 네거티브 결과(클러스터링이 주차장을 못 분리함), Date split의 mAP50-95 하락만 유의미한 신호. 상세는 위 "Cross-lot 도메인 갭 평가 결과" 섹션 |
+| Week 3 — Instance Segmentation | SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`) → YOLOv8n-seg 학습, 서브셋(train 2,000장) | ✅ **실행 완료** — mAP50 0.9613 / Mask mAP50 0.9263, 상세는 위 "Instance Segmentation 결과" 섹션 |
+| HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 📝 코드 작성 완료, 실제 push/배포 전 |
+| Week 4 — CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) 활용 — 차종 zero-shot 분류, 자연어 질의, seg 마스크로 배경 제거 후 분류하는 결합 파이프라인 (`notebooks/ParkCast_Week4_VLM.ipynb`) | 📝 노트북 작성 완료, **Colab 실행 전**(로컬은 transformers 미설치라 문법 검증만 함) |
 
-- [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (실행 완료, mAP50 0.9944)
-- [x] **1단계 (Instance Segmentation)**: SAM 자동 라벨링 + YOLOv8n-seg 학습 실행 완료 (mAP50 0.9613 / Mask mAP50 0.9263)
-- [ ] **2~4단계**: HuggingFace Spaces 배포 / Cross-lot 평가 / CLIP VLM 질의 — 위 순서대로 Colab에서 실제 실행하고 결과를 이 README/포트폴리오에 반영 예정
+- [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (mAP50 0.9944)
+- [x] **Week 2**: Cross-lot 도메인 갭 평가 (네거티브 결과, 원인 분석 완료)
+- [x] **Week 3**: SAM 자동 라벨링 + YOLOv8n-seg 학습 (mAP50 0.9613 / Mask mAP50 0.9263)
+- [ ] **HuggingFace Spaces 배포**: 코드는 있음, 미배포
+- [ ] **Week 4**: CLIP VLM 질의 — 노트북은 작성했지만 Colab에서 아직 실행 안 함
 
 ---
 

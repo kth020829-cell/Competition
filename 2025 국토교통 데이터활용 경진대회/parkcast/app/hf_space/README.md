@@ -20,23 +20,40 @@ CLIP 가중치(~600MB)까지 얹으면 Space 콜드 스타트가 크게 느려�
 `app.py`를 `app/gradio_demo.py` 기준으로 다시 맞추고 `requirements.txt`에 `transformers`를
 추가할 것.
 
-## 배포 절차 (수동)
+## 배포 절차
 
-이 Space는 아직 실제로 push된 적 없음 — 아래는 배포 시 따라야 할 절차:
+Space는 이미 생성돼 있고(SDK가 **Gradio**인지 Space Settings에서 먼저 확인할 것),
+가중치는 Colab의 Drive에 있으므로 로컬 git clone/push보다 Colab에서 `huggingface_hub`로
+직접 업로드하는 게 더 간단함 — `notebooks/ParkCast_Week4_VLM.ipynb`의 "6. HuggingFace
+Spaces 배포" 셀 참조. 요약하면:
 
-1. HF Hub에 모델 저장소 생성 후 학습된 `best.pt` 업로드 (예: `<username>/parkcast-yolov8n`)
-2. `huggingface-cli repo create parkcast-vision --type space --sdk gradio` (또는 웹 UI로 Space 생성)
-3. 이 폴더(`app/hf_space/`) 내용 전체 + 프로젝트 루트의 `parkcast/` 패키지 폴더를 Space repo 루트에 복사
+```python
+from huggingface_hub import login, HfApi
+login()  # write 권한 토큰 필요 (huggingface.co/settings/tokens)
+
+api = HfApi()
+api.upload_folder(folder_path=".../app/hf_space", repo_id="<username>/<space-name>", repo_type="space")
+api.upload_folder(folder_path=".../parkcast", repo_id="<username>/<space-name>", repo_type="space", path_in_repo="parkcast")
+api.upload_file(path_or_fileobj="<가중치 경로>", repo_id="<username>/<space-name>", repo_type="space", path_in_repo="models/best.pt")
+```
+
+git 기반으로 하고 싶으면 대신 이렇게:
+
+1. `git clone https://huggingface.co/spaces/<username>/<space-name>`
+2. 이 폴더(`app/hf_space/`) 내용 전체 + 프로젝트 루트의 `parkcast/` 패키지 폴더를 그 clone 루트에 복사
    ```
    space-repo/
    ├── app.py
    ├── requirements.txt
    ├── README.md
-   └── parkcast/          ← 프로젝트 루트에서 복사
+   ├── parkcast/          ← 프로젝트 루트에서 복사
+   └── models/best.pt     ← 학습된 가중치
    ```
-4. Space Settings → Repository secrets/variables에 `PARKCAST_HF_MODEL_REPO=<username>/parkcast-yolov8n` 등록
-   (또는 `models/best.pt`를 Space repo에 직접 포함 — YOLOv8n은 수 MB 수준이라 git으로도 무리 없음)
-5. `git push`로 Space에 반영 → 자동 빌드
+3. `git add . && git commit -m "deploy" && git push` (HF 토큰을 비밀번호로 사용)
+
+가중치를 Space repo에 직접 안 넣고 별도 HF Hub 모델 저장소에서 받고 싶으면, Space Settings →
+Variables에 `PARKCAST_HF_MODEL_REPO=<username>/<model-repo>`를 등록하면 `_resolve_weights()`가
+자동으로 `hf_hub_download`로 받아옴.
 
 ## 로컬에서 미리 확인
 

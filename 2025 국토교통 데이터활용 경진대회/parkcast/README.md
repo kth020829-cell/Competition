@@ -352,7 +352,7 @@ print(f"점유율: {result.occupancy_pct:.1f}%")
 | Week 1 — Detection | YOLOv8n bbox 검출, 전체 데이터(train 8,691장) | ✅ **실행 완료** — mAP50 0.9944, 점유율 오차 0.27%p |
 | Week 2 — Cross-lot 평가 | ResNet50 임베딩 + K-Means로 주차장 자동 발견 → Random/Date/Lot split 비교 (`parkcast/domain.py`, `scripts/cross_lot_eval.py`) | ✅ **실행 완료** — 네거티브 결과(클러스터링이 주차장을 못 분리함), Date split의 mAP50-95 하락만 유의미한 신호. 상세는 위 "Cross-lot 도메인 갭 평가 결과" 섹션 |
 | Week 3 — Instance Segmentation | SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`) → YOLOv8n-seg 학습, 서브셋(train 2,000장) | ✅ **실행 완료** — mAP50 0.9613 / Mask mAP50 0.9263, 상세는 위 "Instance Segmentation 결과" 섹션 |
-| HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 📝 코드 작성 완료, 실제 push/배포 전 |
+| HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README). Colab에서 `huggingface_hub`로 바로 업로드하는 배포 셀을 `ParkCast_Week4_VLM.ipynb`에 추가함(`app/hf_space/README.md` 참조) | 📝 배포 코드 준비 완료, 실제 업로드 전 |
 | Week 4 — CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) 활용 — 차종 zero-shot 분류, 자연어 질의, seg 마스크로 배경 제거 후 분류하는 결합 파이프라인 (`notebooks/ParkCast_Week4_VLM.ipynb`) | ✅ **실행 완료** — 차종 분류는 확신도 낮음(34~42%), 자연어 질의는 명확한 한계 확인(전역 특징에 편향), seg+VLM 결합은 이번 샘플에서 이점 미확인. 상세는 위 "CLIP 기반 VLM 질의 결과" 섹션 |
 
 - [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (mAP50 0.9944)

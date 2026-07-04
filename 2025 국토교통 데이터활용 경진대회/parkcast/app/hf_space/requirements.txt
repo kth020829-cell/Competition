@@ -3,3 +3,8 @@ gradio>=4.19.0
 opencv-python-headless>=4.8.0
 numpy>=1.24.0
 huggingface_hub>=0.20.0
+
+# Python 3.13은 stdlib에서 audioop을 제거함(PEP 594) — gradio가 오디오 컴포넌트 지원을 위해
+# 내부적으로 pydub → audioop을 무조건 import하다가 여기서 죽음(오디오 기능은 안 쓰는데도).
+# audioop-lts가 그 자리를 대신 채워줌. HF Spaces 기본 이미지가 3.13이라 여기서만 필요.
+audioop-lts; python_version >= "3.13"

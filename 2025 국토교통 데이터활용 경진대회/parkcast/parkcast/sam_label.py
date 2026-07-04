@@ -10,8 +10,8 @@
 → mask(H,W) → cv2.findContours + approxPolyDP로 polygon 단순화 → 실패(컨투어 없음 등)
 시 bbox 4꼭짓점으로 fallback(SamLabelingStats에 정직하게 카운트).
 
-리소스 제약(PKLot 12,416장 × 평균 30~70박스, 무료 T4 기준)을 고려해 split별 서브셋
-크기를 지정할 수 있음 — 포트폴리오 목적이면 대표 서브셋으로 충분함(README 참조).
+PKLot은 12,416장 × 평균 30~70박스라 전체를 라벨링하려면 시간이 오래 걸림 — split별
+서브셋 크기를 지정할 수 있어 필요에 따라 범위를 좁힐 수 있음.
 """
 from __future__ import annotations
 

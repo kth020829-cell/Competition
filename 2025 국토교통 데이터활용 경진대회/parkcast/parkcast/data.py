@@ -19,7 +19,7 @@ SPLITS = ("train", "valid", "test")
 
 
 def _link_or_copy(src: Path, dst: Path, use_symlink: bool) -> None:
-    """가능하면 symlink, 안 되면(Windows/Colab 등) 복사. domain.py/sam_label.py에서도 재사용."""
+    """가능하면 symlink, 안 되면 복사. domain.py/sam_label.py에서도 재사용."""
     if use_symlink:
         try:
             os.symlink(src.resolve(), dst)

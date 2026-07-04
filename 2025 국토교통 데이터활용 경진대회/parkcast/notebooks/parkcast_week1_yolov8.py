@@ -31,7 +31,6 @@ Original file is located at
 import torch
 print(f'PyTorch: {torch.__version__}')
 print(f'CUDA: {torch.cuda.is_available()}, GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-"}')
-# GPU 안 잡혔으면 런타임 → 런타임 유형 변경 → T4 GPU
 
 !pip install -q ultralytics pycocotools matplotlib seaborn
 
@@ -53,7 +52,7 @@ from google.colab import files
 import os
 
 if not os.path.exists('/root/.kaggle/kaggle.json'):
-    print('kaggle.json을 다운로드 폴더에서 찾아 업로드하세요')
+    print('kaggle.json을 다운로드 폴더에서 찾아 업로드해야 함')
     print('(없으면 kaggle.com → Settings → API → Create New Token)')
     uploaded = files.upload()
     os.makedirs('/root/.kaggle', exist_ok=True)
@@ -96,7 +95,7 @@ print('json 존재:', os.path.exists('/content/train/_annotations.coco.json'))
 
 """## 2. 데이터 확인 + COCO json 살펴보기
 
-먼저 어노테이션이 어떻게 생겼는지 확인하고 가요. 면접에서 "데이터를 봤느냐"의 첫 단계.
+먼저 어노테이션이 어떻게 생겼는지 확인함.
 """
 
 import json
@@ -307,7 +306,7 @@ for split in ['train', 'valid', 'test']:
 
 """## 4. YOLOv8 학습
 
-**모델 선택**: YOLOv8n (nano) — T4에서 학습 빠르고 추론도 빠름. 정확도가 부족하면 YOLOv8s로 업그레이드.
+**모델 선택**: YOLOv8n (nano) — 가볍고 빠름. 정확도가 부족하면 YOLOv8s로 업그레이드.
 
 """
 
@@ -320,7 +319,7 @@ results = model.train(
     data=f'{YOLO_ROOT}/data.yaml',
     epochs=30,
     imgsz=640,
-    batch=32,                    # T4 16GB면 32 OK, OOM 나면 16으로
+    batch=32,                    # GPU 메모리 부족하면 16으로 낮춤
     device=0,
     project=RESULTS_DIR,
     name='yolov8n_pklot_v1',
@@ -365,7 +364,7 @@ for fn in ['val_batch0_pred.jpg', 'val_batch0_labels.jpg']:
 
 """## 6. Test set 평가 (학습에서 안 본 데이터)
 
-이게 진짜 보고 싶은 숫자예요. valid는 학습 중 monitor에 쓰여서 약간 leak됨.
+이게 실제 확인하려는 숫자임. valid는 학습 중 monitor에 쓰여서 약간 leak됨.
 """
 
 best = YOLO(f'{run_dir}/weights/best.pt')
@@ -390,7 +389,7 @@ for i, name in enumerate(yolo_names):
 
 """## 7. 예측 + 점유율 자동 계산
 
-PDF의 ParkCast 비전 = 한 장 입력 → 점유 현황 + 비율 출력. 그걸 만듬.
+PDF의 ParkCast 비전 = 한 장 입력 → 점유 현황 + 비율 출력. 그걸 만듦.
 """
 
 import numpy as np

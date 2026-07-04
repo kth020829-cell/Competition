@@ -145,7 +145,7 @@ def build_demo(weights: str):
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", required=True)
-    parser.add_argument("--share", action="store_true", help="public link 생성 (Colab용)")
+    parser.add_argument("--share", action="store_true", help="공개 접속 링크 생성")
     args = parser.parse_args()
 
     demo = build_demo(args.weights)

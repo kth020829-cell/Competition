@@ -39,7 +39,7 @@ def main() -> None:
     print(f"학습 시작: {train_cfg['model']}, {train_cfg['epochs']} epochs, batch={train_cfg['batch']}")
     best = train_yolo(data_yaml, paths.results_dir, train_cfg)
 
-    # 드라이브에 영속 저장
+    # model_dir에 영속 저장 (run_name 붙여 구분)
     target = Path(paths.model_dir) / f"{train_cfg['run_name']}_best.pt"
     shutil.copy(best, target)
     print(f"\nBest weights: {best}")

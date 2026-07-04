@@ -1,7 +1,7 @@
 """Cross-lot 도메인 갭 평가 — 이미지 임베딩 클러스터링 기반 주차장 자동 발견 + split 비교.
 
-`notebooks/ParkCast_Week2_CrossDomain.ipynb`에서 처음 설계한 로직을 재사용 가능한
-함수로 정리한 모듈. PKLot(Roboflow v2)의 random split은 같은 카메라 시점 사진이
+`notebooks/ParkCast_Week2_CrossLot.ipynb`에서 사용하는 재사용 가능한 함수 모음.
+PKLot(Roboflow v2)의 random split은 같은 카메라 시점 사진이
 train/test 양쪽에 섞여 있어 mAP가 진짜 일반화 성능을 반영하지 못함(README 참조).
 파일명에 주차장 정보가 없으므로, ImageNet pretrained ResNet50 임베딩을 K-Means로
 클러스터링해 "주차장(lot)"을 라벨 없이 자동 발견하고, 한 클러스터를 통째로 떼어내

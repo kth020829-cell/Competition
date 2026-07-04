@@ -1,9 +1,9 @@
 """Cross-lot(도메인 갭) 평가 — Random vs Date vs Lot split 한 번에 비교.
 
-notebooks/ParkCast_Week2_CrossDomain.ipynb에서 설계만 해두고 실행은 안 했던 실험을
-parkcast/domain.py 모듈 + 이 스크립트로 재현 가능하게 정리한 것. Random split(이미
-scripts/evaluate.py로 구한 결과)을 인자로 넘기면, Date split과 Lot(cross-domain) split을
-새로 만들어 각각 학습·평가하고 셋을 비교한 막대그래프/CSV를 저장함.
+parkcast/domain.py 모듈을 사용해 이 로직을 CLI 한 번으로 재현함(노트북 버전은
+notebooks/ParkCast_Week2_CrossLot.ipynb). Random split(이미 scripts/evaluate.py로
+구한 결과)을 인자로 넘기면, Date split과 Lot(cross-domain) split을 새로 만들어
+각각 학습·평가하고 셋을 비교한 막대그래프/CSV를 저장함.
 
 사용 (prepare_data.py로 만든 data.yaml이 이미 있어야 함):
     python scripts/cross_lot_eval.py --config configs/default.yaml \

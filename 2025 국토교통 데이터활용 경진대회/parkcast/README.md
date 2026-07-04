@@ -129,6 +129,54 @@ Week 1(bbox detection) 이후 실제로 Colab에서 돌려서 얻은 결과. GT 
 
 ---
 
+## CLIP 기반 VLM 질의 결과 (Week 4)
+
+`notebooks/ParkCast_Week4_VLM.ipynb`를 Colab에서 실제로 실행한 결과(`parkcast/vlm.py`의 `ParkingVLM`). 3개 데모 중 하나는 뚜렷한 한계를 그대로 드러냈고, 하나는 가설이 검증되지 않은 네거티브 결과였음 — 있는 그대로 기록함.
+
+### Demo 1 — Zero-shot 차종 분류
+
+Week 1 bbox 모델로 검출한 점유 칸을 crop해서 CLIP으로 sedan/SUV/pickup truck/motorcycle 4지선다 분류.
+
+<!-- 여기에 Demo 1 결과 캡처(vlm_demo1_vehicle_classification.png)를 넣으면 됨 -->
+![Zero-shot 차종 분류 — 6개 crop 모두 SUV 또는 pickup truck/van으로 분류됨](docs/vlm_demo1_vehicle_classification.png)
+
+확신도가 34.2~41.7%로 낮음(4지선다 랜덤 추측이 25%이므로 그보다는 높지만, 확신 있는 수준은 아님). 6개 샘플 모두 "an SUV" 또는 "a pickup truck or van"으로만 분류되고 "a sedan car"·"a motorcycle"은 한 번도 1위로 안 나옴 — PKLot 항공뷰의 저해상도 crop에서 CLIP의 차종 구분력이 제한적이거나, 후보 문구 설계가 항공뷰에 최적화되지 않았을 가능성을 시사함(추가 검증 필요).
+
+### Demo 2 — 자연어 질의
+
+<!-- 여기에 Demo 2 결과 캡처(vlm_demo2_natural_language_query.png)를 넣으면 됨 -->
+![자연어 질의 — 세 질의 모두 "a full parking lot"이 압도적 1위](docs/vlm_demo2_natural_language_query.png)
+
+| 질의 | "a full parking lot" | 실제 질의 텍스트 |
+|---|---|---|
+| "a truck blocking two spaces" | 92.1% | 3.1% 미만(상위 3위 밖) |
+| "a parking lot with tree shadows on the ground" | 88.1% | 4.3% |
+| "an almost empty parking lot" | 82.0% | 10.9% |
+
+**명확한 한계가 드러남**: 세 질의 모두 실제 입력한 텍스트와 무관하게 "a full parking lot"(기본 후보 중 하나)이 압도적으로 1위를 차지함. 이미지 자체가 실제로 붐비는 주차장이라 CLIP의 전체 이미지 임베딩이 "붐빈다/비었다" 같은 전역적 특징에는 민감하지만, "트럭 한 대가 두 칸을 막고 있다"처럼 국소적이고 구체적인 내용에는 거의 반응하지 않음. `parkcast/vlm.py`에 이미 적어둔 "CLIP은 VQA가 아니라 이미지-텍스트 유사도 모델"이라는 한계가 실제 데모에서 그대로 확인된 것 — **전체 이미지에 대한 자유 질의는 기대만큼 유용하지 않았고, Demo 3처럼 관심 영역을 crop해서 질의하는 방식이 훨씬 안정적**임을 보여줌.
+
+### Demo 3 — Seg + VLM 결합 (배경 제거 후 분류)
+
+Week 3 seg 모델의 polygon 마스크로 배경을 지운 crop과, 기존 bbox crop을 같은 인스턴스에 대해 나란히 분류해서 비교함.
+
+<!-- 여기에 Demo 3 결과 캡처(vlm_demo3_seg_vs_bbox_crop.png)를 넣으면 됨 -->
+![bbox crop vs seg mask crop — 4개 인스턴스 모두 같은 라벨(SUV)로 분류됨](docs/vlm_demo3_seg_vs_bbox_crop.png)
+
+| 인스턴스 | bbox crop | seg crop(배경 제거) |
+|---|---|---|
+| 1 | SUV 38.6% | SUV 38.4% |
+| 2 | pickup truck/van 37.3% | SUV(레이블 변화 없음) 31.8% |
+| 3 | SUV 37.6% | SUV 45.9% |
+| 4 | pickup truck/van 46.2% | SUV 34.7% |
+
+**이번 소규모 샘플(4개)에서는 가설이 뚜렷하게 검증되지 않음**: 4개 인스턴스 모두 예측 라벨은 bbox/seg 사이에 (인스턴스 2를 제외하고) 동일했고, confidence도 개선되는 방향으로 일관되지 않음(3번은 seg가 더 높고, 2·4번은 오히려 seg가 더 낮음). "배경 노이즈를 지우면 분류가 더 정확해진다"는 가설을 이 샘플만으로는 뒷받침하지 못함 — `mobile_sam.pt`(가장 가벼운 SAM 변형)의 마스크 경계가 완벽하지 않아 seg crop 가장자리에도 약간의 배경/인접 차량 조각이 남아있는 것으로 보임. 표본을 늘리거나 정밀한 SAM 모델로 재검증이 필요함.
+
+### 종합
+
+3개 데모 중 자연어 질의(Demo 2)의 한계가 가장 뚜렷했고, seg+VLM 결합(Demo 3)의 이점은 이번 샘플에서는 확인되지 않았음. Zero-shot 차종 분류(Demo 1)는 방향은 맞지만 확신도가 낮아 실용적으로 쓰려면 후보 문구나 이미지 해상도 개선이 필요해 보임. CLIP을 그대로 붙이는 것만으로는 부족하고, **PKLot 항공뷰 도메인에 맞는 프롬프트/입력 전처리 튜닝이 다음 단계**로 필요함.
+
+---
+
 ## 기술 스택
 
 | 분류 | 기술 |
@@ -181,7 +229,7 @@ parkcast/
 ├── notebooks/                    ← 실험 노트북 (재현용)
 │   ├── ParkCast_Week1_YOLOv8.ipynb          실행 완료 (mAP50 0.9944)
 │   ├── ParkCast_Week2_CrossLot.ipynb        실행 완료 (네거티브 결과 — 위 섹션 참조)
-│   └── ParkCast_Week4_VLM.ipynb             신규 작성, Colab 실행 전
+│   └── ParkCast_Week4_VLM.ipynb             실행 완료 (자연어 질의 한계 확인 — 위 섹션 참조)
 │
 ├── docs/
 │   └── ParkCast_Proposal.pdf     원래 시스템 비전 (수요 예측 + 배차 추천)
@@ -305,13 +353,13 @@ print(f"점유율: {result.occupancy_pct:.1f}%")
 | Week 2 — Cross-lot 평가 | ResNet50 임베딩 + K-Means로 주차장 자동 발견 → Random/Date/Lot split 비교 (`parkcast/domain.py`, `scripts/cross_lot_eval.py`) | ✅ **실행 완료** — 네거티브 결과(클러스터링이 주차장을 못 분리함), Date split의 mAP50-95 하락만 유의미한 신호. 상세는 위 "Cross-lot 도메인 갭 평가 결과" 섹션 |
 | Week 3 — Instance Segmentation | SAM box-prompted 자동 라벨링(`parkcast/sam_label.py`) → YOLOv8n-seg 학습, 서브셋(train 2,000장) | ✅ **실행 완료** — mAP50 0.9613 / Mask mAP50 0.9263, 상세는 위 "Instance Segmentation 결과" 섹션 |
 | HuggingFace Spaces 배포 | `app/hf_space/` (Spaces용 `app.py` + YAML front matter README) | 📝 코드 작성 완료, 실제 push/배포 전 |
-| Week 4 — CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) 활용 — 차종 zero-shot 분류, 자연어 질의, seg 마스크로 배경 제거 후 분류하는 결합 파이프라인 (`notebooks/ParkCast_Week4_VLM.ipynb`) | 📝 노트북 작성 완료, **Colab 실행 전**(로컬은 transformers 미설치라 문법 검증만 함) |
+| Week 4 — CLIP 기반 VLM 질의 | `parkcast/vlm.py`(`ParkingVLM`) 활용 — 차종 zero-shot 분류, 자연어 질의, seg 마스크로 배경 제거 후 분류하는 결합 파이프라인 (`notebooks/ParkCast_Week4_VLM.ipynb`) | ✅ **실행 완료** — 차종 분류는 확신도 낮음(34~42%), 자연어 질의는 명확한 한계 확인(전역 특징에 편향), seg+VLM 결합은 이번 샘플에서 이점 미확인. 상세는 위 "CLIP 기반 VLM 질의 결과" 섹션 |
 
 - [x] **Week 1**: YOLOv8 베이스라인 학습 + 단일 이미지 점유율 추정 (mAP50 0.9944)
 - [x] **Week 2**: Cross-lot 도메인 갭 평가 (네거티브 결과, 원인 분석 완료)
 - [x] **Week 3**: SAM 자동 라벨링 + YOLOv8n-seg 학습 (mAP50 0.9613 / Mask mAP50 0.9263)
+- [x] **Week 4**: CLIP VLM 질의 실행 완료 (자연어 질의 한계 확인, seg+VLM 결합 이점은 이번 샘플에서 미확인)
 - [ ] **HuggingFace Spaces 배포**: 코드는 있음, 미배포
-- [ ] **Week 4**: CLIP VLM 질의 — 노트북은 작성했지만 Colab에서 아직 실행 안 함
 
 ---
 

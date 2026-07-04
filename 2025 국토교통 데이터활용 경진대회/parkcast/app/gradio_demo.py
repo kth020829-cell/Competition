@@ -82,10 +82,20 @@ def build_demo(weights: str):
             return "검출된 점유 칸이 없습니다."
 
         vlm = get_vlm()
-        boxes = result.boxes_xyxy[occ_idx]
-        ranked = vlm.classify_boxes(image, boxes)
+        if result.has_masks:
+            # seg 모델(yolov8n-seg.pt)이면 마스크로 배경을 지운 crop을 씀 — bbox crop보다
+            # 옆 칸/배경이 덜 섞이는 게 이론상 장점이지만, Week4 데모(README 참조)에서는
+            # 소규모 샘플로 이 이점이 뚜렷하게 확인되진 않았음
+            masks = [result.masks_xy[i] for i in occ_idx]
+            ranked = vlm.classify_masks(image, masks)
+            method_note = "YOLO 마스크(배경 제거) + CLIP zero-shot"
+        else:
+            boxes = result.boxes_xyxy[occ_idx]
+            ranked = vlm.classify_boxes(image, boxes)
+            method_note = "YOLO 박스 + CLIP zero-shot"
+
         lines = [f"- Box {i + 1}: **{label}** ({prob * 100:.1f}%)" for i, (label, prob) in enumerate(ranked)]
-        return "### 점유 칸별 차종 추정 (YOLO 박스 + CLIP zero-shot)\n" + "\n".join(lines)
+        return f"### 점유 칸별 차종 추정 ({method_note})\n" + "\n".join(lines)
 
     with gr.Blocks(title="ParkCast Vision Demo") as demo:
         gr.Markdown("# ParkCast Vision\n주차장 이미지 → 빈 칸/찬 칸 검출 + 점유율 자동 계산")

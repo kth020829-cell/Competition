@@ -32,6 +32,24 @@ DEFAULT_SCENE_LABELS = [
 ]
 
 
+def mask_crop(
+    image: np.ndarray, polygon_xy: np.ndarray, bg_color: Tuple[int, int, int] = (255, 255, 255)
+) -> np.ndarray:
+    """polygon 바깥을 bg_color로 지우고 polygon의 bounding box로 잘라냄.
+
+    bbox crop과 달리 옆 칸 차량·배경이 섞이지 않음 — seg 모델의 마스크로 "배경 노이즈 없이"
+    crop할 때 씀 (classify_masks, notebooks/ParkCast_Week4_VLM.ipynb Demo 3와 동일 로직).
+    """
+    import cv2
+
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [polygon_xy.astype(np.int32)], 255)
+    masked = image.copy()
+    masked[mask == 0] = bg_color
+    x, y, w, h = cv2.boundingRect(polygon_xy.astype(np.int32))
+    return masked[y : y + h, x : x + w]
+
+
 class ParkingVLM:
     """CLIP(openai/clip-vit-base-patch32)을 wrap한 zero-shot 이미지-텍스트 매칭기."""
 
@@ -82,6 +100,27 @@ class ParkingVLM:
         for box in boxes_xyxy:
             x1, y1, x2, y2 = (int(v) for v in box)
             crop = image[max(0, y1):y2, max(0, x1):x2]
+            if crop.size == 0:
+                results.append(("unknown", 0.0))
+                continue
+            results.append(self.classify(crop, candidate_labels)[0])
+        return results
+
+    def classify_masks(
+        self,
+        image: np.ndarray,
+        masks_xy: Sequence[np.ndarray],
+        candidate_labels: Sequence[str] = DEFAULT_VEHICLE_LABELS,
+    ) -> List[Tuple[str, float]]:
+        """seg 모델의 polygon 마스크로 배경을 지운 crop마다 차종 후보군과 비교 → 인스턴스별 최상위 라벨+확률.
+
+        classify_boxes와 달리 옆 칸 차량·배경이 섞이지 않음(mask_crop 참조). Week 4 데모
+        (README "CLIP 기반 VLM 질의 결과" 참조)에서는 4개 인스턴스 소규모 샘플로는 이 방식의
+        이점이 뚜렷하지 않았음 — 표본을 늘리거나 더 정밀한 SAM 모델로 재검증 필요.
+        """
+        results = []
+        for poly in masks_xy:
+            crop = mask_crop(image, poly)
             if crop.size == 0:
                 results.append(("unknown", 0.0))
                 continue

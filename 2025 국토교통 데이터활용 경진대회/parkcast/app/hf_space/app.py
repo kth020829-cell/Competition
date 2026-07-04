@@ -81,6 +81,12 @@ def build_demo() -> gr.Blocks:
             "주차장 이미지 한 장 → 빈 칸/찬 칸 검출 + 점유율 자동 계산.\n"
             "PKLot 데이터셋(YOLOv8n)으로 학습됨 — mAP50 0.9944 (random split, 상세는 README 참조)."
         )
+        gr.Markdown(
+            "> ⚠️ **PKLot 데이터셋(브라질 대학 주차장을 정면 위에서 내려다본 항공사진)으로만 "
+            "학습됨.** 지도/위성 스크린샷이나 도로가 함께 보이는 비스듬한 각도의 사진은 학습 "
+            "도메인과 많이 달라 검출이 거의 안 될 수 있음(모델 버그가 아니라 도메인 갭임). "
+            "정면에 가깝게, 주차칸이 규칙적으로 보이는 항공사진일수록 잘 됨."
+        )
         with gr.Row():
             with gr.Column():
                 inp = gr.Image(type="numpy", label="Parking lot image")

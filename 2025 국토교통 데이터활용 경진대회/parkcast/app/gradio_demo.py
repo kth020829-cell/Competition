@@ -99,6 +99,13 @@ def build_demo(weights: str):
 
     with gr.Blocks(title="ParkCast Vision Demo") as demo:
         gr.Markdown("# ParkCast Vision\n주차장 이미지 → 빈 칸/찬 칸 검출 + 점유율 자동 계산")
+        gr.Markdown(
+            "> ⚠️ **PKLot 데이터셋(브라질 대학 주차장을 정면 위에서 내려다본 항공사진)으로만 "
+            "학습됨.** 지도/위성 스크린샷이나 도로가 함께 보이는 비스듬한 각도의 사진은 학습 "
+            "도메인과 많이 달라 검출이 거의 안 될 수 있음(버그가 아니라 도메인 갭임 — README의 "
+            "\"Cross-lot 도메인 갭 평가\" 섹션 참조). 정면에 가깝게, 주차칸이 규칙적으로 보이는 "
+            "항공사진일수록 잘 됨."
+        )
         with gr.Tabs():
             with gr.Tab("Detection"):
                 with gr.Row():
